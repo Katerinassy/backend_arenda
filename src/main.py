@@ -1,21 +1,54 @@
-
-
 from datetime import date
 from typing import List
 from fastapi import Depends, FastAPI, HTTPException
 from sqlalchemy.orm import Session
+from sqlalchemy import Column, Integer, String, Date, create_engine
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker
 from pydantic import BaseModel
-from src.BaseModel import CarCreate, CarOut
-from src.database import get_db
-from src.models import (
-    User, Order, Car,
-    ColorType, DriveType, EngineType, FuelType,
-    TransmissionType, InteriorType, BodyType
-)
+
+# Инициализация базы данных
+DATABASE_URL = "sqlite:///./test.db"
+engine = create_engine(DATABASE_URL)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+Base = declarative_base()
+
+# Модель User
+class User(Base):
+    __tablename__ = "user"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    full_name = Column(String)
+    email = Column(String, unique=True, index=True)
+    birth_date = Column(Date)
+    inn = Column(Integer)
+    citizenship = Column(String)
+    password_hash = Column(String)
+    driving_experience = Column(Integer, nullable=True)
+    role = Column(String, default="USER")
+
+# Модель Car
+class Car(Base):
+    __tablename__ = "car"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    # Добавьте остальные поля для Car
+
+# Создание таблиц
+Base.metadata.create_all(bind=engine)
 
 app = FastAPI()
 
-# Pydantic модели для запросов и ответов
+# Dependency для получения сессии БД
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+# Pydantic модели
 class UserBase(BaseModel):
     full_name: str
     email: str
@@ -23,6 +56,8 @@ class UserBase(BaseModel):
     inn: int
     citizenship: str
     password_hash: str
+    driving_experience: int = None
+    role: str = "USER"
 
 class UserCreate(UserBase):
     pass
@@ -31,9 +66,16 @@ class UserOut(UserBase):
     id: int
 
     class Config:
-        orm_mode = True
+        from_attributes = True  # Заменяем orm_mode в Pydantic v2
 
-# Аналогично для других моделей (OrderOut, CarOut и т.д.)
+class CarCreate(BaseModel):
+    pass  # Добавьте поля для Car
+
+class CarOut(BaseModel):
+    id: int
+    
+    class Config:
+        from_attributes = True
 
 # Users endpoints
 @app.get("/users", response_model=List[UserOut])
@@ -42,7 +84,7 @@ def list_users(db: Session = Depends(get_db)):
 
 @app.post("/users", response_model=UserOut)
 def create_user(user: UserCreate, db: Session = Depends(get_db)):
-    db_user = User(**user.dict())
+    db_user = User(**user.model_dump())
     db.add(db_user)
     db.commit()
     db.refresh(db_user)
@@ -58,7 +100,7 @@ def update_user(
     if not db_user:
         raise HTTPException(status_code=404, detail="User not found")
     
-    for key, value in user_update.dict().items():
+    for key, value in user_update.model_dump().items():
         setattr(db_user, key, value)
     
     db.commit()
@@ -82,13 +124,11 @@ def list_cars(db: Session = Depends(get_db)):
 
 @app.post("/cars", response_model=CarOut)
 def create_car(car: CarCreate, db: Session = Depends(get_db)):
-    db_car = Car(**car.dict())
+    db_car = Car(**car.model_dump())
     db.add(db_car)
     db.commit()
     db.refresh(db_car)
     return db_car
-
-# Аналогичные endpoints для Order, ColorType, DriveType и т.д.
 
 # Contacts
 @app.get("/contacts")
